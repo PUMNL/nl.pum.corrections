@@ -11,6 +11,8 @@
  */
 
 function civicrm_api3_contact_segment_migrate($params) {
+  // initiate error logger
+  $errorLogger = new CRM_Corrections_ErrorLogger('contactsegment_migrate_log');
 
   // get top level sector tag id
   $topTagId = _getTopTagId();
@@ -23,24 +25,24 @@ function civicrm_api3_contact_segment_migrate($params) {
 
   // select all top level sectors
   $query = 'SELECT id, name FROM civicrm_tag WHERE parent_id = %1';
-  $sectorTag = CRM_Core_DAO::executeQuery($query, array(1 => $topTagId, 'Integer'));
+  $sectorTag = CRM_Core_DAO::executeQuery($query, array(1 => array($topTagId, 'Integer')));
 
   while ($sectorTag->fetch()) {
 
     // create segment for sector
-    $sectorSegment = _createSegment($sectorTag->name);
+    $sectorSegment = _createSegment($sectorTag->name, $errorLogger);
 
     // store in temp table
-    _writeTempRecord($sectorTag->id, $sectorSegment['id']);
+    _writeTempRecord($sectorTag->id, $sectorSegment['id'], $errorLogger);
 
     // process all child tags (create segment)
-    _processChildren($sectorTag->id, $sectorSegment['id']);
+    _processChildren($sectorTag->id, $sectorSegment['id'], $errorLogger);
 
     // all sectors and areas of expertise created, now create contact_segment for all coordinators
-    _processSC($sectorTag->id);
+    _processSC($sectorTag->id, $errorLogger);
 
     // now add contact_segments for sector tags
-    _processContactTags($sectorTag->id);
+    _processContactTags($sectorTag->id, $errorLogger);
   }
 
   // delete all sector coordinator relationships that are not explicitly on case on
@@ -59,8 +61,9 @@ function civicrm_api3_contact_segment_migrate($params) {
  * function to process all entity tags for tag into contact segment
  *
  * @param $tagId
+ * @param $errorLogger
  */
-function _processContactTags($tagId) {
+function _processContactTags($tagId, $errorLogger) {
   // get all entity tags for tag
   $query = 'SELECT entity_id, contact_sub_type
     FROM civicrm_entity_tag JOIN civicrm_contact ON entity_id = civicrm_contact.id
@@ -85,6 +88,8 @@ function _processContactTags($tagId) {
     $contactSegment['start_date'] = '20150501';
     $contactSegment['is_active'] = 1;
     _createContactSegment($contactSegment);
+    $errorLogger->logMessage('Notification', 'ContactSegment created for contact '.$contactSegment['contact_id'].
+      ' and segment '.$contactSegment['segment_id'].' with role '.$role);
   }
 }
 
@@ -108,25 +113,30 @@ function _createContactSegment($params) {
  * function to create contact segment record for sector coordinator
  *
  * @param $sectorTagId
+ * @param $errorLogger
  */
-function _processSC($sectorTagId) {
+function _processSC($sectorTagId, $errorLogger) {
   $role = 'Sector Coordinator';
   $query = 'SELECT * FROM civicrm_tag_enhanced WHERE tag_id = %1';
   $enhancedTag = CRM_Core_DAO::executeQuery($query, array(1 => array($sectorTagId, 'Integer')));
   while ($enhancedTag->fetch()) {
-    $contactSegment = array();
-    $contactSegment['contact_id'] = $enhancedTag->coordinator_id;
-    $contactSegment['segment_id'] = $sectorTagId;
-    $contactSegment['role_value'] = $role;
-    if ($enhancedTag->start_date) {
-      $contactSegment['start_date'] = date('Ymd', strtotime($enhancedTag->start_date));
-    } else {
-      $contactSegment['start_date'] = date('Ymd');
+    if ($enhancedTag->coordinator_id) {
+      $contactSegment = array();
+      $contactSegment['contact_id'] = $enhancedTag->coordinator_id;
+      $contactSegment['segment_id'] = _getSegmentIdWithTagId($sectorTagId);
+      $contactSegment['role_value'] = $role;
+      if ($enhancedTag->start_date) {
+        $contactSegment['start_date'] = date('Ymd', strtotime($enhancedTag->start_date));
+      } else {
+        $contactSegment['start_date'] = date('Ymd');
+      }
+      if ($enhancedTag->end_date) {
+        $contactSegment['end_date'] = date('Ymd', strtotime($enhancedTag->edn_date));
+      }
+      _createContactSegment($contactSegment);
+      $errorLogger->logMessage('Notification', 'ContactSegment created for contact ' . $contactSegment['contact_id'] .
+        ' and segment ' . $contactSegment['segment_id'] . ' with role ' . $role);
     }
-    if ($enhancedTag->end_date) {
-      $contactSegment['end_date'] = date('Ymd', strtotime($enhancedTag->edn_date));
-    }
-    _createContactSegment($contactSegment);
   }
 }
 
@@ -135,17 +145,18 @@ function _processSC($sectorTagId) {
  *
  * @param $parentTagId
  * @param $parentSegmentId
+ * $param $errorLogger
  */
-function _processChildren($parentTagId, $parentSegmentId) {
+function _processChildren($parentTagId, $parentSegmentId, $errorLogger) {
   $query = 'SELECT id, name FROM civicrm_tag WHERE parent_id = %1';
-  $aoeTag = CRM_Core_DAO::executeQuery($query, array(1 => $parentTagId, 'Integer'));
+  $aoeTag = CRM_Core_DAO::executeQuery($query, array(1 => array($parentTagId, 'Integer')));
   while ($aoeTag->fetch()) {
     // create segment for area of expertise
-    $aoeSegment = _createSegment($aoeTag->name, $parentSegmentId);
+    $aoeSegment = _createSegment($aoeTag->name, $errorLogger, $parentSegmentId);
     // store in temp table
-    _writeTempRecord($aoeTag->id, $aoeSegment['id']);
+    _writeTempRecord($aoeTag->id, $aoeSegment['id'], $errorLogger);
     // now add contact_segments for sector tags
-    _processContactTags($aoeTag->id);
+    _processContactTags($aoeTag->id, $errorLogger);
   }
 }
 
@@ -164,15 +175,18 @@ function _getTopTagId() {
  * function to create segment
  *
  * @param $label
+ * @param $errorLogger
  * @param $parentId
  * @return array
  */
-function _createSegment($label, $parentId = NULL) {
+function _createSegment($label, $errorLogger, $parentId = NULL) {
   $segmentParams['label'] = $label;
   if ($parentId) {
     $segmentParams['parent_id'] = $parentId;
   }
-  return civicrm_api3('Segment', 'Create', $segmentParams);
+  $segment = civicrm_api3('Segment', 'Create', $segmentParams);
+  $errorLogger->logMessage('Notification', 'Segment created : '.$segment['values']['id'].' with label '.$label.' and parent '.$parentId);
+  return $segment['values'];
 }
 
 /**
@@ -195,14 +209,20 @@ function _createTempTable() {
 
 /**
  * function to get write temp record
+ *
+ * @param $tagId
+ * @param $segmentId
+ * @param $errorLogger
  */
-function _writeTempRecord($tagId, $segmentId) {
+function _writeTempRecord($tagId, $segmentId, $errorLogger) {
   $query = "INSERT INTO contact_segment_migrate SET tag_id = %1, segment_id = %2";
   $params = array(
     1 => array($tagId, 'Integer'),
     2 => array($segmentId, 'Integer')
   );
   CRM_Core_DAO::executeQuery($query, $params);
+  $errorLogger->logMessage('Notification', 'Temp record written : tagId '.$tagId.' and segmentId '.$segmentId);
+
 }
 
 /**
