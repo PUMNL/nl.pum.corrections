@@ -47,6 +47,8 @@ function civicrm_api3_contact_segment_migrate($params) {
     // all sectors and areas of expertise created, now create contact_segment for all coordinators
     _processSC($sectorTag->id, $errorLogger);
 
+    _processTaxonomy($sectorTag->id, $errorLogger);
+
     // now add contact_segments for sector tags
     _processContactTags($sectorTag->id, $errorLogger);
   }
@@ -176,6 +178,44 @@ function _processSC($sectorTagId, $errorLogger) {
       _createContactSegment($contactSegment);
       $errorLogger->logMessage('Notification', 'ContactSegment created for contact ' . $contactSegment['contact_id'] .
         ' and segment ' . $contactSegment['segment_id'] . ' with role ' . $role);
+    }
+  }
+}
+
+/**
+ * Function to migrate drupal taxonomy term to link to the new segment
+ *
+ * @param $sectorTagId
+ * @param $errorLogger
+ */
+function _processTaxonomy($sectorTagId, $errorLogger) {
+  $segment_id = _getSegmentIdWithTagId($sectorTagId);
+  $segment = civicrm_api3('Segment', 'getsingle', array('id' => $segment_id));
+
+  //determine the current sector coordinator
+  $sector_coorinator_id = false;
+  $civicoop_segment_role_option_group = civicrm_api3('OptionGroup', 'getvalue', array('name' => 'civicoop_segment_role', 'return' => 'id'));
+  $role = civicrm_api3('OptionValue', 'getvalue', array('option_group_id' => $civicoop_segment_role_option_group, 'name' => 'sector_coordinator', 'return' => 'value'));
+  try {
+    $contact_segment = civicrm_api3('ContactSegment', 'getsingle', array('segment_id' => $segment_id, 'is_active' => 1, 'role_value' => $role));
+    $sector_coorinator_id = $contact_segment['contact_id'];
+  } catch (Exception $e) {
+    //do nothing
+  }
+
+  //retrieve the linked taxonomy terms in drupal
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'taxonomy_term')
+      ->fieldCondition('field_pum_tag_id', 'value', $sectorTagId, '=');
+  $result = $query->execute();
+  if (isset($result['taxonomy_term']) && count($result['taxonomy_term'])) {
+    foreach($result['taxonomy_term'] as $term_id => $t) {
+      $term = taxonomy_term_load($term_id);
+      $term->name = $segment['label'];
+      $term->field_pum_segment_id["und"][0]["value"] = $segment_id;
+      $term->field_pum_coordinator_id["und"][0]["value"] = $sector_coorinator_id ? $sector_coorinator_id : null;
+      taxonomy_term_save($term);
+      $errorLogger->logMessage('Notification', 'Taxonomy updated for segment ' . $segment_id);
     }
   }
 }
