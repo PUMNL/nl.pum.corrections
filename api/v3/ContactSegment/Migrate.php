@@ -17,17 +17,23 @@ function civicrm_api3_contact_segment_migrate($params) {
   // get top level sector tag id
   $topTagId = _getTopTagId();
 
-  // empty old data
-  _removeOldData();
+  //if processed for the first time (no processed records) create processed table and remove old data
+  _firstTimeProcessing($topTagId);
 
   // create temporary table for tag to hold segment_id
   _createTempTable();
 
   // select all top level sectors
-  $query = 'SELECT id, name FROM civicrm_tag WHERE parent_id = %1';
-  $sectorTag = CRM_Core_DAO::executeQuery($query, array(1 => array($topTagId, 'Integer')));
+  $query = 'SELECT id, name FROM civicrm_tag JOIN tags_processed ON id=tag_id
+    WHERE parent_id = %1 AND processed = %2 LIMIT 10';
+  $sectorTag = CRM_Core_DAO::executeQuery($query, array(
+    1 => array($topTagId, 'Integer'),
+    2 => array(0, 'Integer')));
 
   while ($sectorTag->fetch()) {
+    // set tag to processed
+    CRM_Core_DAO::executeQuery('UPDATE tags_processed SET processed = %1 WHERE tag_id = %2',
+      array(1 => array(1, 'Integer'), 2 => array($sectorTag->id, 'Integer')));
 
     // create segment for sector
     $sectorSegment = _createSegment($sectorTag->name, $errorLogger);
@@ -46,13 +52,13 @@ function civicrm_api3_contact_segment_migrate($params) {
   }
 
   // delete all sector coordinator relationships that are not explicitly on case on
-  $scRelationshipTypeId = civicrm_api3('RelationshipType', 'Getvalue', array('name_a_b' => 'Sector Coordinator', 'return' => 'id'));
-  $relationshipDelete = 'DELETE FROM civicrm_relationship WHERE relationship_type_id = %1 AND case_id IS NULL';
-  CRM_Core_DAO::executeQuery($relationshipDelete, array(1 => array($scRelationshipTypeId, 'Integer')));
+  //$scRelationshipTypeId = civicrm_api3('RelationshipType', 'Getvalue', array('name_a_b' => 'Sector Coordinator', 'return' => 'id'));
+  //$relationshipDelete = 'DELETE FROM civicrm_relationship WHERE relationship_type_id = %1 AND case_id IS NULL';
+  //CRM_Core_DAO::executeQuery($relationshipDelete, array(1 => array($scRelationshipTypeId, 'Integer')));
 
   //delete all tags and entity tags that have been created and are now in temp table
-  CRM_Core_DAO::executeQuery("DELETE FROM civicrm_entity_tag WHERE tag_id IN(SELECT DISTINCT(tag_id) FROM contact_segment_migrate)");
-  CRM_Core_DAO::executeQuery("DELETE FROM civicrm_tag WHERE id IN(SELECT DISTINCT(tag_id) FROM contact_segment_migrate)");
+  //CRM_Core_DAO::executeQuery("DELETE FROM civicrm_entity_tag WHERE tag_id IN(SELECT DISTINCT(tag_id) FROM contact_segment_migrate)");
+  //CRM_Core_DAO::executeQuery("DELETE FROM civicrm_tag WHERE id IN(SELECT DISTINCT(tag_id) FROM contact_segment_migrate)");
 
   return civicrm_api3_create_success(array(), $params, 'ContactSegment', 'Migrate');
 }
@@ -128,10 +134,14 @@ function _processSC($sectorTagId, $errorLogger) {
       if ($enhancedTag->start_date) {
         $contactSegment['start_date'] = date('Ymd', strtotime($enhancedTag->start_date));
       } else {
-        $contactSegment['start_date'] = date('Ymd');
+        $contactSegment['start_date'] = date('Ymd', strtotime('01-05-2015'));
       }
       if ($enhancedTag->end_date) {
-        $contactSegment['end_date'] = date('Ymd', strtotime($enhancedTag->edn_date));
+        $contactSegment['end_date'] = date('Ymd', strtotime($enhancedTag->end_date));
+      } else {
+        if (isset($contactSegment['end_date'])) {
+          unset($contactSegment['end_date']);
+        }
       }
       _createContactSegment($contactSegment);
       $errorLogger->logMessage('Notification', 'ContactSegment created for contact ' . $contactSegment['contact_id'] .
@@ -194,6 +204,7 @@ function _createSegment($label, $errorLogger, $parentId = NULL) {
  */
 function _removeOldData() {
   CRM_Core_DAO::executeQuery('TRUNCATE TABLE civicrm_contact_segment');
+  CRM_Core_DAO::executeQuery('TRUNCATE TABLE civicrm_segment_tree');
   CRM_Core_DAO::executeQuery('DELETE FROM civicrm_segment');
   CRM_Core_DAO::executeQuery('ALTER TABLE civicrm_segment AUTO_INCREMENT = 1');
 }
@@ -231,5 +242,31 @@ function _writeTempRecord($tagId, $segmentId, $errorLogger) {
 function _getSegmentIdWithTagId($tagId) {
   $query = "SELECT segment_id FROM contact_segment_migrate WHERE tag_id = %1";
   return CRM_Core_DAO::singleValueQuery($query, array(1 => array($tagId, 'Integer')));
+}
+
+/**
+ * Functin to create processed_tags file if required, and add records to it
+ *
+ * @param int $topTagId
+ */
+function _firstTimeProcessing($topTagId) {
+  $firstTime = FALSE;
+  if (!CRM_Core_DAO::checkTableExists('tags_processed')) {
+    $processedCreate = "CREATE TABLE IF NOT EXISTS tags_processed(
+    tag_id int(10) unsigned NOT NULL,
+    processed tinyint(3) unsigned DEFAULT 0)";
+    CRM_Core_DAO::executeQuery($processedCreate);
+    $firstTime = TRUE;
+  } else {
+    $countQry = CRM_Core_DAO::singleValueQuery('SELECT COUNT(*) AS countTags FROM tags_processed');
+    if ($countQry == 0) {
+      $firstTime = TRUE;
+    }
+  }
+  if ($firstTime) {
+    _removeOldData();
+    $insert = "INSERT INTO tags_processed (tag_id) SELECT DISTINCT(id) FROM civicrm_tag WHERE parent_id = %1";
+    CRM_Core_DAO::executeQuery($insert, array(1 => array($topTagId, 'Integer')));
+  }
 }
 
