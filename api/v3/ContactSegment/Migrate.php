@@ -24,8 +24,8 @@ function civicrm_api3_contact_segment_migrate($params) {
   _createTempTable();
 
   // select all top level sectors
-  $query = 'SELECT id, name FROM civicrm_tag JOIN tags_processed ON id=tag_id
-    WHERE parent_id = %1 AND processed = %2 LIMIT 10';
+  $query = 'SELECT id, name FROM civicrm_tag JOIN tags_processed tp ON id=tag_id
+    WHERE parent_id = %1 AND processed = %2 LIMIT 100';
   $sectorTag = CRM_Core_DAO::executeQuery($query, array(
     1 => array($topTagId, 'Integer'),
     2 => array(0, 'Integer')));
@@ -113,8 +113,38 @@ function _createContactSegment($params) {
       $params['is_active'] = 0;
     }
   }
+  //first check if we do not have a contact segment yet for contact_id, segment_id and role. If so,
+  // end date might have to be changed
+  $existing = _getContactSegment($params);
+  if (!empty($existing)) {
+    $params['id'] = $existing['id'];
+  }
   civicrm_api3('ContactSegment', 'Create', $params);
 }
+
+/**
+ * function to get contact segment
+ *
+ * @param array $params
+ * @return array $contactSegment
+ */
+function _getContactSegment($params) {
+  $contactSegment = array();
+  if (isset($params['contact_id']) && isset($params['segment_id']) && isset($params['role_value'])) {
+    try {
+      $existingParams = array(
+        'contact_id' => $params['contact_id'],
+        'segment_id' => $params['segment_id'],
+        'role_value' => $params['role_value']
+      );
+      $contactSegment = civicrm_api3('ContactSegment', 'Getsingle', $existingParams);
+    } catch (CiviCRM_API3_Exception $ex) {
+      $contactSegment = array();
+    }
+  }
+  return $contactSegment;
+}
+
 /**
  * function to create contact segment record for sector coordinator
  *
@@ -155,7 +185,7 @@ function _processSC($sectorTagId, $errorLogger) {
  *
  * @param $parentTagId
  * @param $parentSegmentId
- * $param $errorLogger
+ * @param $errorLogger
  */
 function _processChildren($parentTagId, $parentSegmentId, $errorLogger) {
   $query = 'SELECT id, name FROM civicrm_tag WHERE parent_id = %1';
@@ -269,4 +299,3 @@ function _firstTimeProcessing($topTagId) {
     CRM_Core_DAO::executeQuery($insert, array(1 => array($topTagId, 'Integer')));
   }
 }
-
