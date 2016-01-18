@@ -206,32 +206,16 @@ function _processTaxonomy($sectorTagId, $errorLogger) {
   //retrieve the linked taxonomy terms in drupal
   $query = new EntityFieldQuery();
   $query->entityCondition('entity_type', 'taxonomy_term')
-      ->fieldCondition('field_pum_segment_id', 'value', $segment_id, '=');
+      ->fieldCondition('field_pum_tag_id', 'value', $sectorTagId, '=');
   $result = $query->execute();
   if (isset($result['taxonomy_term']) && count($result['taxonomy_term'])) {
-    foreach($result['taxonomy_term'] as $term_id => $t) {
+    foreach ($result['taxonomy_term'] as $term_id => $t) {
       $term = taxonomy_term_load($term_id);
       $term->name = $segment['label'];
       $term->field_pum_segment_id["und"][0]["value"] = $segment_id;
       $term->field_pum_coordinator_id["und"][0]["value"] = $sector_coorinator_id ? $sector_coorinator_id : null;
       taxonomy_term_save($term);
       $errorLogger->logMessage('Notification', 'Taxonomy updated for segment ' . $segment_id);
-    }
-  } else {
-    //retrieve the linked taxonomy terms in drupal
-    $query = new EntityFieldQuery();
-    $query->entityCondition('entity_type', 'taxonomy_term')
-        ->fieldCondition('field_pum_tag_id', 'value', $sectorTagId, '=');
-    $result = $query->execute();
-    if (isset($result['taxonomy_term']) && count($result['taxonomy_term'])) {
-      foreach ($result['taxonomy_term'] as $term_id => $t) {
-        $term = taxonomy_term_load($term_id);
-        $term->name = $segment['label'];
-        $term->field_pum_segment_id["und"][0]["value"] = $segment_id;
-        $term->field_pum_coordinator_id["und"][0]["value"] = $sector_coorinator_id ? $sector_coorinator_id : null;
-        taxonomy_term_save($term);
-        $errorLogger->logMessage('Notification', 'Taxonomy updated for segment ' . $segment_id);
-      }
     }
   }
 }
