@@ -9,8 +9,11 @@
  * @see civicrm_api3_create_error
  * @throws API_Exception
  */
+$migrateRunning = false;
 
 function civicrm_api3_contact_segment_migrate($params) {
+  global $migrateRunning;
+
   // initiate error logger
   $errorLogger = new CRM_Corrections_ErrorLogger('contactsegment_migrate_log');
 
@@ -31,6 +34,7 @@ function civicrm_api3_contact_segment_migrate($params) {
     2 => array(0, 'Integer')));
 
   while ($sectorTag->fetch()) {
+    $migrateRunning = true;
     // set tag to processed
     CRM_Core_DAO::executeQuery('UPDATE tags_processed SET processed = %1 WHERE tag_id = %2',
       array(1 => array(1, 'Integer'), 2 => array($sectorTag->id, 'Integer')));
@@ -47,10 +51,11 @@ function civicrm_api3_contact_segment_migrate($params) {
     // all sectors and areas of expertise created, now create contact_segment for all coordinators
     _processSC($sectorTag->id, $errorLogger);
 
-    _processTaxonomy($sectorTag->id, $errorLogger);
-
     // now add contact_segments for sector tags
     _processContactTags($sectorTag->id, $errorLogger);
+
+    _processTaxonomy($sectorTag->id, $errorLogger);
+    $migrateRunning = false;
   }
 
   //delete all sector coordinator relationships that are not explicitly on case on
@@ -338,4 +343,9 @@ function _firstTimeProcessing($topTagId) {
     $insert = "INSERT INTO tags_processed (tag_id) SELECT DISTINCT(id) FROM civicrm_tag WHERE parent_id = %1";
     CRM_Core_DAO::executeQuery($insert, array(1 => array($topTagId, 'Integer')));
   }
+}
+
+function _contact_segment_migrate_is_running() {
+  global $migrateRunning;
+  return $migrateRunning;
 }
