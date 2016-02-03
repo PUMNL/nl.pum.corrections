@@ -26,12 +26,15 @@ function civicrm_api3_contact_segment_migrate($params) {
   // create temporary table for tag to hold segment_id
   _createTempTable();
 
+  $offset = (empty($params['offset']) ? 0 : $params['offset']);
+
   // select all top level sectors
-  $query = 'SELECT id, name FROM civicrm_tag JOIN tags_processed tp ON id=tag_id
-    WHERE parent_id = %1 AND processed = %2 LIMIT 100';
+  $query = 'SELECT id, name FROM civicrm_tag INNER JOIN tags_processed tp ON id=tag_id
+    WHERE parent_id = %1 AND processed = %2 LIMIT %3 10';
   $sectorTag = CRM_Core_DAO::executeQuery($query, array(
     1 => array($topTagId, 'Integer'),
-    2 => array(0, 'Integer')));
+    2 => array(0, 'Integer'),
+    3 => array($offset, 'Integer')));
 
   while ($sectorTag->fetch()) {
     $migrateRunning = true;
