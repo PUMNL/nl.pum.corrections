@@ -61,7 +61,7 @@ function civicrm_api3_contact_segment_migrate($params) {
   //delete all sector coordinator relationships that are not explicitly on case on
   $scRelationshipTypeId = civicrm_api3('RelationshipType', 'Getvalue', array('name_a_b' => 'Sector Coordinator', 'return' => 'id'));
   $relationshipDelete = 'DELETE FROM civicrm_relationship WHERE relationship_type_id = %1 AND case_id IS NULL';
-  CRM_Core_DAO::executeQuery($relationshipDelete, array(1 => array($scRelationshipTypeId, 'Integer')));
+  //CRM_Core_DAO::executeQuery($relationshipDelete, array(1 => array($scRelationshipTypeId, 'Integer')));
 
   //delete all tags and entity tags that have been created and are now in temp table
   //CRM_Core_DAO::executeQuery("DELETE FROM civicrm_entity_tag WHERE tag_id IN(SELECT DISTINCT(tag_id) FROM contact_segment_migrate)");
