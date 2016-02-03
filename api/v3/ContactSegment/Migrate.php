@@ -30,7 +30,7 @@ function civicrm_api3_contact_segment_migrate($params) {
 
   // select all top level sectors
   $query = 'SELECT id, name FROM civicrm_tag INNER JOIN tags_processed tp ON id=tag_id
-    WHERE parent_id = %1 AND processed = %2 LIMIT %3 10';
+    WHERE parent_id = %1 AND processed = %2 LIMIT %3, 10';
   $sectorTag = CRM_Core_DAO::executeQuery($query, array(
     1 => array($topTagId, 'Integer'),
     2 => array(0, 'Integer'),
