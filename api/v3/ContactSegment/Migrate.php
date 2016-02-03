@@ -70,6 +70,8 @@ function civicrm_api3_contact_segment_migrate($params) {
   //CRM_Core_DAO::executeQuery("DELETE FROM civicrm_entity_tag WHERE tag_id IN(SELECT DISTINCT(tag_id) FROM contact_segment_migrate)");
   //CRM_Core_DAO::executeQuery("DELETE FROM civicrm_tag WHERE id IN(SELECT DISTINCT(tag_id) FROM contact_segment_migrate)");
 
+  $errorLogger->logMessage('Notification', 'Finished job');
+
   return civicrm_api3_create_success(array(), $params, 'ContactSegment', 'Migrate');
 }
 
