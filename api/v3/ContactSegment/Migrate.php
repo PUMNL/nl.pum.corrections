@@ -23,24 +23,24 @@ function civicrm_api3_contact_segment_migrate($params) {
   //if processed for the first time (no processed records) create processed table and remove old data
   _firstTimeProcessing($topTagId);
 
-  // create temporary table for tag to hold segment_id
-  _createTempTable();
-
   $offset = (empty($params['offset']) ? 0 : $params['offset']);
+  $limit = (empty($params['limit']) ? 10 : $params['limit']);
 
   // select all top level sectors
-  $query = 'SELECT id, name FROM civicrm_tag INNER JOIN tags_processed tp ON id=tag_id
-    WHERE parent_id = %1 AND processed = %2 LIMIT %3, 10';
+  $query = 'SELECT id, name FROM civicrm_tag
+    WHERE parent_id = %1 AND id NOT IN (select tag_id from tags_processed where processed = 1) LIMIT %2, %3';
   $sectorTag = CRM_Core_DAO::executeQuery($query, array(
     1 => array($topTagId, 'Integer'),
-    2 => array(0, 'Integer'),
-    3 => array($offset, 'Integer')));
+    2 => array($offset, 'Integer'),
+    3 => array($limit, 'Integer')));
 
   while ($sectorTag->fetch()) {
     $migrateRunning = true;
     // set tag to processed
-    CRM_Core_DAO::executeQuery('UPDATE tags_processed SET processed = %1 WHERE tag_id = %2',
-      array(1 => array(1, 'Integer'), 2 => array($sectorTag->id, 'Integer')));
+    CRM_Core_DAO::executeQuery("INSERT INTO tags_processed (tag_id, processed) VALUES (%1, 1)", array(
+      1 => array($sectorTag->id, 'Integer')
+    ));
+
 
     // create segment for sector
     $sectorSegment = _createSegment($sectorTag->name, $errorLogger);
@@ -283,6 +283,9 @@ function _createSegment($label, $errorLogger, $parentId = NULL) {
 function _removeOldData() {
   CRM_Core_DAO::executeQuery('TRUNCATE TABLE civicrm_contact_segment');
   CRM_Core_DAO::executeQuery('TRUNCATE TABLE civicrm_segment_tree');
+  if (CRM_Core_DAO::checkTableExists('contact_segment_migrate')) {
+    CRM_Core_DAO::executeQuery('TRUNCATE TABLE contact_segment_migrate');
+  }
   CRM_Core_DAO::executeQuery('DELETE FROM civicrm_segment');
   CRM_Core_DAO::executeQuery('ALTER TABLE civicrm_segment AUTO_INCREMENT = 1');
 }
@@ -291,7 +294,7 @@ function _removeOldData() {
  * function to create temp table
  */
 function _createTempTable() {
-  $query = "CREATE TEMPORARY TABLE contact_segment_migrate (tag_id int(11) NOT NULL, segment_id int(11) DEFAULT NULL,
+  $query = "CREATE TABLE contact_segment_migrate (tag_id int(11) NOT NULL, segment_id int(11) DEFAULT NULL,
   PRIMARY KEY (tag_id), UNIQUE KEY tag_id_UNIQUE (tag_id))";
   CRM_Core_DAO::executeQuery($query);
 }
@@ -341,10 +344,13 @@ function _firstTimeProcessing($topTagId) {
       $firstTime = TRUE;
     }
   }
+
+  if (!CRM_Core_DAO::checkTableExists('contact_segment_migrate')) {
+    _createTempTable();
+  }
+
   if ($firstTime) {
     _removeOldData();
-    $insert = "INSERT INTO tags_processed (tag_id) SELECT DISTINCT(id) FROM civicrm_tag WHERE parent_id = %1";
-    CRM_Core_DAO::executeQuery($insert, array(1 => array($topTagId, 'Integer')));
   }
 }
 
