@@ -19,7 +19,7 @@ function civicrm_api3_expert_irene($params) {
   _defineConstants();
   $returnValues = array();
   $expert = CRM_Core_DAO::executeQuery("SELECT * FROM overzicht_irene WHERE contact_id NOT IN(SELECT expert_id 
-    FROM result_irene) ORDER BY contact_id LIMIT 1000");
+    FROM result_irene) ORDER BY contact_id LIMIT 500");
   if ($expert->N == 0) {
     $returnValues = array('Alle experts verwerkt!');
   } else {
@@ -56,6 +56,7 @@ function _writeResult($expert, $mostRecentMain, $latestPrins, $maxGroupFields) {
   } else {
     $expert71 = 0;
   }
+  $inActiveExpert = _contactInActiveExpert($expert->contact_id);
   if (is_null($expert->expert_status)) {
     $expert->expert_status = '';
   }
@@ -74,8 +75,8 @@ function _writeResult($expert, $mostRecentMain, $latestPrins, $maxGroupFields) {
   $sql = "INSERT INTO result_irene (expert_id, expert_name, expert_gender, expert_age, expert_birth_date, expert_71, expert_status, prins_count, 
     procus_count, recent_main_status, recent_main_start_date, recent_main_end_date, recent_main_type, recent_main_subject, recent_main_customer, 
     recent_main_country, expert_sector, sector_coordinator, latest_prins_end_date, latest_prins_project_number, latest_prins_customer, 
-    latest_prins_country, expert_contact_type) 
-    VALUES(%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23)";
+    latest_prins_country, expert_contact_type, in_active_expert) 
+    VALUES(%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24)";
   $sqlParams = array(
     1 => array($expert->contact_id, 'Integer'),
     2 => array($expert->expert, 'String'),
@@ -88,6 +89,7 @@ function _writeResult($expert, $mostRecentMain, $latestPrins, $maxGroupFields) {
     9 => array($expert->procus_count, 'Integer'),
     17 => array($expert->sector, 'String'),
     18 => array($expert->sector_coordinator, 'String'),
+    24 => array($inActiveExpert, 'Integer'),
     );
   if (isset($mostRecentMain->main_status)) {
     $sqlParams[10] = array($mostRecentMain->main_status, 'String');
@@ -124,8 +126,10 @@ function _writeResult($expert, $mostRecentMain, $latestPrins, $maxGroupFields) {
   } else {
     $sqlParams[16] = array('', 'String');
   }
-  if (isset($latestPrins['end_date']) && !empty($latestPrins['end_date']) && $latestPrins['end_date'] != '0000-00-00') {
-    $sqlParams[19] = array($latestPrins['end_date'], 'String');
+  if (isset($latestPrins['end_date']) && !empty($latestPrins['end_date'])) {
+    if ($latestPrins['end_date'] != "0000-00-00") {
+      $sqlParams[19] = array($latestPrins['end_date'], 'String');
+    }
   } else {
     $sqlParams[19] = array('', 'String');
   }
@@ -193,12 +197,12 @@ function _getLatestPrins($contactId) {
       $endDate = new DateTime(trim($endDateParts[1]));
       if (!isset($latestPrins['end_date'])) {
         _setLatestPrins($prins->prins_history, $latestPrins);
-        $latestPrins['end_date'] = $endDate->format('d-m-Y');
+        $latestPrins['end_date'] = $endDate->format('Y-m-d');
       } else {
         $latestDate = new DateTime($latestPrins['end_date']);
         if ($endDate > $latestDate) {
           _setLatestPrins($prins->prins_history, $latestPrins);
-          $latestPrins['end_date'] = $endDate->format('d-m-Y');
+          $latestPrins['end_date'] = $endDate->format('Y-m-d');
         }
       }
     }
@@ -362,4 +366,33 @@ function _expertInExcludedGroups($contactId) {
     return TRUE;
   }
   return FALSE;
+}
+
+/**
+ * Function to determine if expert is in group active expert
+ *
+ * @param $contactId
+ * @return int
+ */
+function _contactInActiveExpert($contactId) {
+  try {
+    $activeExpertGroupId = civicrm_api3('Group', 'getvalue', array(
+      'title' => 'Active Expert',
+      'return' => 'id'
+    ));
+    $sql = "SELECT COUNT(*) FROM civicrm_group_contact WHERE group_id = %1 AND contact_id = %2 AND status = %3";
+    $sqlParams = array(
+      1 => array($activeExpertGroupId, 'Integer'),
+      2 => array($contactId, 'Integer'),
+      3 => array('Added', 'String')
+    );
+    $count = CRM_Core_DAO::singleValueQuery($sql, $sqlParams);
+    if ($count > 0) {
+      return 1;
+    }
+  }
+  catch (CiviCRM_API3_Exception $ex) {
+
+  }
+  return 0;
 }
